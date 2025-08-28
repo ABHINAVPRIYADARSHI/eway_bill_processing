@@ -36,8 +36,9 @@ state_options = {
     "3": "Chandigarh_Haryana_HimachalPradesh_JammuKashmir_Punjab_Uttarakhand",
     "4": "Jharkhand_UttarPradesh",
     "5": "Kerala_Lakshadweep_Puducherry_TamilNadu",
-    "6": "DadraNagarHaveli_Daman_Diu_Gujarat_MadhyaPradesh_Chhattisgarh",
-    "7": "Delhi_Rajasthan"
+    "6": "DadraNagarHaveli_Daman&Diu_Gujarat_MadhyaPradesh",
+    "7": "Delhi_Rajasthan",
+    "8": "Andaman&Nicobar_ArunachalPradesh_Assam_Bihar_Chhattisgarh_Manipur_Meghalaya_Mizoram_Nagaland_Odisha_Sikkim_Tripura_WestBengal"
 }
 
 def log(msg: str):
@@ -122,14 +123,6 @@ def get_month_year_range(start_month: str, start_year, end_month: str, end_year)
     except Exception as e:
         log(f"❌ Error while calculating month_year_range: {e}")
     return result
-
-# finally:
-    # Reset page
-    # try:
-    #     # page.goto("https://mis.ewaybillgst.gov.in/Verification/GSTINBasedRpt.aspx")
-    #     # page.wait_for_selector('xpath=//*[@id="ctl00_ContentPlaceHolder1_txt_gstin"]', timeout=15000)
-    # except Exception as e:
-    #     log(f"Failed to reset page after {statecombo}: {e}")
 
 
 def _get_month_number(month_name: str) -> int:
@@ -342,7 +335,7 @@ def ewbextract_stock_stmt(page, ewbs, dpath):
         try:
             log(f"Starting EWB details extraction for EWB: {ewb_no}")
             url = f"https://mis.ewaybillgst.gov.in/Verify/EwayBillPrint.aspx?ewb_no={ewb_no}&cal=1"
-            page.goto(url, wait_until="networkidle", timeout=DEFAULT_TIMEOUT)
+            page.goto(url, wait_until="domcontentloaded", timeout=DEFAULT_TIMEOUT)
 
             # Wait for all required elements and extract text
             page.locator('#ctl00_ContentPlaceHolder1_lblApxDistDetails').wait_for(timeout=DEFAULT_TIMEOUT)
@@ -362,8 +355,7 @@ def ewbextract_stock_stmt(page, ewbs, dpath):
                 df = pd.read_html(StringIO(html))[0]
                 df = df.assign(ewb=ewb_no, Dist=dist, Trans=trans, From=frm_addr, To=to_addr)
                 df.to_excel(os.path.join(dpath, f"{ewb_no}.xlsx"), index=False)
-                log(f"[{idx}/{total}] Downloaded item list for EWB: {ewb_no}")
-
+                log(f"[{idx}/{total}]✅ Downloaded item list for EWB: {ewb_no}")
             else:
                 log(f"[{idx}/{total}] Main table not found for EWB: {ewb_no}, checking IRN fallback...")
                 if page.is_visible('#ctl00_ContentPlaceHolder1_btn_irn', timeout=DEFAULT_TIMEOUT):
@@ -393,7 +385,7 @@ def ewbextract_stock_stmt(page, ewbs, dpath):
                             df = pd.read_html(StringIO(html))[0]
                             df = df.assign(ewb=ewb_no, Dist=dist, Trans=trans, From=frm_addr, To=to_addr)
                             df.to_excel(os.path.join(dpath, f"{ewb_no}_irn.xlsx"), index=False)
-                            log(f"[{idx}/{total}] Downloaded IRN item list for EWB: {ewb_no}")
+                            log(f"[{idx}/{total}]✅ Downloaded IRN item list for EWB: {ewb_no}")
                         else:
                             log(f"[{idx}/{total}] No item list found after IRN click for EWB: {ewb_no}")
                 else:
@@ -657,7 +649,7 @@ def xlsx_mergejoinsort_toll_details(dpath, mfile):
                     excl_merged_unique_states = excl_merged_unique_states[excl_merged_unique_states['State'].notna() & (excl_merged_unique_states['State'] != '')]
                     result_unique_states = excl_merged_unique_states.groupby('ewb')['State'].agg(','.join).reset_index()
                     result_unique_states.to_excel(writer, index=False, sheet_name='TollUniq')
-                    log("TollData and TollUniq sheets appended to existing Excel file!")
+                    log("TollData and TollUniq sheets appended to existing Excel file.")
                 else:
                     log("Skipping TollUniq sheet creation: 'State' or 'ewb' column missing in toll data.")
         except Exception as e:
@@ -679,11 +671,8 @@ def ewb_extract_toll_details(page, ewbs: list, dpath: str):
     
     for i, ewb in enumerate(ewbs):
         try:
-            page.goto(
-                f"https://mis.ewaybillgst.gov.in/RFID_Reports/Ewb_rpt.aspx?id=1&ewayno={ewb}",
-                timeout=_5_MIN_TIMEOUT,
-                wait_until='load'
-            )
+            toll_url = f"https://mis.ewaybillgst.gov.in/RFID_Reports/Ewb_rpt.aspx?id=1&ewayno={ewb}"
+            page.goto(toll_url, wait_until='domcontentloaded', timeout=_5_MIN_TIMEOUT)
             table_selector = "#ctl00_ContentPlaceHolder1_grd_tolldtls"
             try:
                 page.wait_for_selector(table_selector, timeout=DEFAULT_TIMEOUT)
@@ -694,17 +683,16 @@ def ewb_extract_toll_details(page, ewbs: list, dpath: str):
                     df['ewb'] = ewb
                     cols = df.shape[1]
                     
-                    if cols <= 2:  # Typically means no detailed toll data
-                        log(f"Toll data not found (or incomplete) for ewb {ewb} -> Progress {i+1}/{lewb}")
+                    if cols <= 2:  # Typically means no detailed toll details
+                        log(f"[{i+1}/{lewb}] Toll details not found (or incomplete) for ewb {ewb}")
                     else:
                         dfile = os.path.join(dpath, f"{ewb}_toll.xlsx")
                         df.to_excel(dfile, index=False)
-                        log(f"Downloaded ewb toll table for ewb {ewb} -> Progress {i+1}/{lewb}")
+                        log(f"[{i+1}/{lewb}]✅ Downloaded ewb toll details for ewb {ewb} ")
                 else:
-                    log(f"Could not extract HTML toll data for ewb {ewb} -> Progress {i+1}/{lewb}")
-                    
+                    log(f"[{i+1}/{lewb}] Could not extract HTML toll details for ewb {ewb}")
             except TimeoutError:
-                log(f"Toll data table not found for ewb {ewb} (timeout) -> Progress {i+1}/{lewb}")
+                log(f"[{i+1}/{lewb}] Toll data details not found for ewb {ewb} (timeout)")
             
         except TimeoutError as e:
             log(f"❌ Timeout error for EWB {ewb}: {e}")
@@ -728,6 +716,8 @@ def main():
     extract_ewb_data_flag = config["extract_ewb_data_flag"]
     prepare_stock_statement_flag = config["prepare_stock_statement_flag"]
     check_toll_data_flag = config["check_toll_data_flag"]
+    if getattr(sys, 'frozen', False):
+        os.environ['PLAYWRIGHT_BROWSERS_PATH'] = os.path.join(sys._MEIPASS, 'playwright', 'driver')
     
     try:
         with sync_playwright() as p:
@@ -813,8 +803,7 @@ def main():
                 log(f"Skipping toll data from GST portal as check_toll_data_flag is False.")
 
             log("~*~ ✅All GSTINs processed successfully✅ ~*~")
-            # ewb_page.goto("https://ewaybillgst.gov.in/mainmenu.aspx")
-            time.sleep(600000)
+            time.sleep(_5_MIN_TIMEOUT)
             context.close()
     except Exception as e:
         log(f"❌ Fatal error during browser automation: {e}")

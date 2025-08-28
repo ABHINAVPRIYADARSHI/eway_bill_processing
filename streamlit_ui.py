@@ -9,6 +9,7 @@ import subprocess
 from datetime import date, datetime
 import streamlit as st
 import calendar
+from streamlit_autorefresh import st_autorefresh
 
 CONFIG_PATH = os.path.abspath("./input/config.json")
 LOG_PATH = os.path.abspath("./input/logs.txt")
@@ -24,6 +25,21 @@ if 'log_session_id' not in st.session_state:
 
 today = date.today()
 
+hide_toolbar_and_header = """
+<style>
+/* Hide the toolbar and decoration */
+[data-testid="stToolbar"] {visibility: hidden; height: 0; position: fixed;}
+[data-testid="stDecoration"] {visibility: hidden; height: 0; position: fixed;}
+header {visibility: hidden; height: 0; position: fixed;}
+
+/* Remove top padding/margin so content moves up */
+.block-container {
+    padding-top: 0rem;
+    margin-top: -2rem; /* adjust this value as needed */
+}
+</style>
+"""
+st.markdown(hide_toolbar_and_header, unsafe_allow_html=True)
 # ---- Custom CSS for Styling & Animations ----
 st.markdown(
     """
@@ -252,7 +268,18 @@ def load_config(path):
         return {"url": "https://gstsso.nic.in/", "username": "", "password": "", "gstins": [],
                 "start_month": calendar.month_name[today.month], "end_month": calendar.month_name[today.month],
                 "start_year": today.year-1, "end_year": today.year, 
-                "extract_ewb_data": True, "prepare_stock_statement": True, "check_toll_data": True}
+                "extract_ewb_data_flag": True, "prepare_stock_statement_flag": True, "check_toll_data_flag": True}
+
+
+def run_worker(config_path, log_path):
+    worker_script = get_script_path("scraper_worker.py")
+    if getattr(sys, "frozen", False):
+        # When bundled with PyInstaller, call the separate worker exe
+        worker_exe = os.path.join(os.path.dirname(sys.executable), "scraper_worker.exe")
+        subprocess.Popen([worker_exe, config_path, log_path])
+    else:
+        # When running locally (normal Python), call the script directly
+        subprocess.Popen([sys.executable, worker_script, config_path, log_path])
 
 
 def get_script_path(script_name: str) -> str:
@@ -349,6 +376,7 @@ with tab1:
         if end_dt < start_dt:
             st.error("❌ End date must be the same or after start date.")
             st.stop()
+        st.success("✅ Scraping started! Switch to the 'Live Logs' tab to monitor progress.")
 
         config_data = {
             "url": url,
@@ -370,9 +398,10 @@ with tab1:
         # Add a clear separator when starting a new scraping job
         with open(LOG_PATH, "a", encoding="utf-8") as f:
             f.write(f"\n[SCRAPER {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Starting new scraping job\n")
+        run_worker(CONFIG_PATH, LOG_PATH)
         # subprocess.Popen([sys.executable, "scraper_worker.py", CONFIG_PATH, LOG_PATH])
-        subprocess.Popen([sys.executable, get_script_path("scraper_worker.py"), CONFIG_PATH, LOG_PATH])
-        st.success("✅ Scraping started! Switch to the 'Live Logs' tab to monitor progress.")
+        # subprocess.Popen([sys.executable, get_script_path("scraper_worker.py"), CONFIG_PATH, LOG_PATH])
+
 
 # Footer
 st.markdown(
@@ -410,7 +439,7 @@ with tab3:
     
     ### 4. Monitoring Progress
     - Monitor the progress in the "Logs" tab which gets refreshed every 5 seconds
-    - Downloaded files will be saved in the `output` folder
+    - Downloaded files will be available in the `./E-Way Mitra/output` folder
     - Each GSTIN will have its own subfolder with the downloaded files
     
     ### ❗ Important Notes
@@ -433,7 +462,9 @@ with tab3:
 with tab2:
     st.subheader("📜 Live Logs")
     st.caption("🔄 Auto-refreshes every 5 seconds")
-    
+    # Auto-refresh component - this replaces the problematic time.sleep + st.rerun
+    count = st_autorefresh(interval=5000, limit=None, key="log_refresh")
+
     # Initialize session state for logs if it doesn't exist
     if 'log_history' not in st.session_state:
         st.session_state.log_history = ""
@@ -465,19 +496,10 @@ with tab2:
         
         # Always display the full log history
         if st.session_state.log_history:
-            # safe_logs = html.escape(st.session_state.log_history)
             st.code(st.session_state.log_history, language="bash")
-            # st.markdown(
-            #     f"""
-            #     <div class="log-box">
-            #         {safe_logs}
-            #     </div>
-            #     """,
-            #     unsafe_allow_html=True
-            # )
         else:
             st.info("No logs available yet. Start the scraper to see logs here.")
     
-    # Auto-refresh the tab every 5 seconds
-    time.sleep(5)
-    st.rerun()
+    # # Auto-refresh the tab every 5 seconds
+    # time.sleep(5)
+    # st.rerun()
